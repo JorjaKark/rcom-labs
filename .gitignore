@@ -1,0 +1,21 @@
+# Compiled object files
+.obj/
+*.o
+
+# Executables
+read_noncanonical
+write_noncanonical
+serial
+noncanonical
+
+# Backup / temporary files
+*~
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# macOS Finder files
+.DS_Store
+
