@@ -134,7 +134,7 @@ You can verify that the virtual cable works without running your own programs:
 
 <img width="550" height="71" alt="image" src="https://github.com/user-attachments/assets/14ee7f7e-319d-4016-a0e2-e3f52ce7c3b2" />
 
-
+---
 ## Notes
 - Extend `read_noncanonical.c` and `write_noncanonical.c` to implement the full lab protocol (SET/UA exchange, disconnection, data transfer).  
 - You must have permission to access the serial device files. If necessary, run with `sudo` or adjust group permissions.  
