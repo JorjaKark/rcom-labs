@@ -1,15 +1,17 @@
 // Example of how to write to the serial port in non-canonical mode
 //
 // Modified by: Eduardo Nuno Almeida [enalmeida@fe.up.pt]
+// Extended with UA waiting + timeout
 
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <termios.h>
 #include <unistd.h>
+#include <time.h>
 
 #define _POSIX_SOURCE 1 // POSIX compliant source
 
@@ -21,7 +23,6 @@
 
 int fd = -1;           // File descriptor for open serial port
 struct termios oldtio; // Serial port settings to restore on closing
-volatile int STOP = FALSE;
 
 int openSerialPort(const char *serialPort, int baudRate);
 int closeSerialPort();
@@ -31,157 +32,163 @@ int writeBytesSerialPort(const unsigned char *bytes, int nBytes);
 // ---------------------------------------------------
 // MAIN
 // ---------------------------------------------------
-int main(int argc, char *argv[]) {
-  if (argc < 2) {
-    printf("Incorrect program usage\n"
-           "Usage: %s <SerialPort>\n"
-           "Example: %s /dev/ttyS0\n",
-           argv[0], argv[0]);
-    exit(1);
-  }
+int main(int argc, char *argv[])
+{
+    if (argc < 2)
+    {
+        printf("Incorrect program usage\n"
+               "Usage: %s <SerialPort>\n"
+               "Example: %s /dev/ttyS0\n",
+               argv[0],
+               argv[0]);
+        exit(1);
+    }
 
-  // Open serial port device for reading and writing, and not as controlling tty
-  // because we don't want to get killed if linenoise sends CTRL-C.
-  //
-  // NOTE: See the implementation of the serial port library in "serial_port/".
-  const char *serialPort = argv[1];
+    const char *serialPort = argv[1];
 
-  if (openSerialPort(serialPort, BAUDRATE) < 0) {
-    perror("openSerialPort");
-    exit(-1);
-  }
+    if (openSerialPort(serialPort, BAUDRATE) < 0)
+    {
+        perror("openSerialPort");
+        exit(-1);
+    }
 
-  printf("Serial port %s opened\n", serialPort);
+    printf("Serial port %s opened\n", serialPort);
 
-  // Create string to send
-  // Build a SET frame: FLAG | A | C | BCC | FLAG
-  unsigned char setFrame[5];
-  setFrame[0] = 0x7E;                      // FLAG
-  setFrame[1] = 0x03;                      // Address (A, Tx->Rx)
-  setFrame[2] = 0x03;                      // Control (C = SET)
-  setFrame[3] = setFrame[1] ^ setFrame[2]; // BCC = A ^ C
-  setFrame[4] = 0x7E;                      // FLAG
+    // Build SET frame
+    unsigned char setFrame[5];
+    setFrame[0] = 0x7E;                       // FLAG
+    setFrame[1] = 0x03;                       // A (sender -> receiver)
+    setFrame[2] = 0x03;                       // C (SET)
+    setFrame[3] = setFrame[1] ^ setFrame[2];  // BCC = A ^ C
+    setFrame[4] = 0x7E;                       // FLAG
 
-  int bytes = writeBytesSerialPort(setFrame, 5);
-  printf("SET frame sent (%d bytes)\n", bytes);
+    int bytes = writeBytesSerialPort(setFrame, 5);
+    printf("SET frame sent (%d bytes)\n", bytes);
 
-  // Wait until all bytes have been written to the serial port
-  sleep(1);
+    // Wait for UA response (5 bytes)
+    unsigned char buf[5];
+    int n = 0;
+    time_t start = time(NULL);
 
-  // Close serial port
-  if (closeSerialPort() < 0) {
-    perror("closeSerialPort");
-    exit(-1);
-  }
+    while (n < 5 && difftime(time(NULL), start) < 3.0) // 3 sec timeout
+    {
+        int r = readByteSerialPort(&buf[n]);
+        if (r > 0)
+            n += r;
+    }
 
-  printf("Serial port %s closed\n", serialPort);
+    if (n == 5)
+    {
+        printf("UA frame received: ");
+        for (int i = 0; i < 5; i++)
+            printf("0x%02X ", buf[i]);
+        printf("\n");
+    }
+    else
+    {
+        printf("Timeout: UA frame not received\n");
+    }
 
-  return 0;
+    if (closeSerialPort() < 0)
+    {
+        perror("closeSerialPort");
+        exit(-1);
+    }
+
+    printf("Serial port %s closed\n", serialPort);
+
+    return 0;
 }
 
 // ---------------------------------------------------
 // SERIAL PORT LIBRARY IMPLEMENTATION
 // ---------------------------------------------------
 
-// Open and configure the serial port.
-// Returns -1 on error.
-int openSerialPort(const char *serialPort, int baudRate) {
-  // Open with O_NONBLOCK to avoid hanging when CLOCAL
-  // is not yet set on the serial port (changed later)
-  int oflags = O_RDWR | O_NOCTTY | O_NONBLOCK;
-  fd = open(serialPort, oflags);
-  if (fd < 0) {
-    perror(serialPort);
-    return -1;
-  }
+int openSerialPort(const char *serialPort, int baudRate)
+{
+    int oflags = O_RDWR | O_NOCTTY | O_NONBLOCK;
+    fd = open(serialPort, oflags);
+    if (fd < 0)
+    {
+        perror(serialPort);
+        return -1;
+    }
 
-  // Save current port settings
-  if (tcgetattr(fd, &oldtio) == -1) {
-    perror("tcgetattr");
-    return -1;
-  }
+    if (tcgetattr(fd, &oldtio) == -1)
+    {
+        perror("tcgetattr");
+        return -1;
+    }
 
-  // Convert baud rate to appropriate flag
+#define CASE_BAUDRATE(baudrate) \
+    case baudrate:              \
+        br = B##baudrate;       \
+        break;
 
-  // Baudrate settings are defined in <asm/termbits.h>, which is included by
-  // <termios.h>
-#define CASE_BAUDRATE(baudrate)                                                \
-  case baudrate:                                                               \
-    br = B##baudrate;                                                          \
-    break;
-
-  tcflag_t br;
-  switch (baudRate) {
-    CASE_BAUDRATE(1200);
-    CASE_BAUDRATE(1800);
-    CASE_BAUDRATE(2400);
-    CASE_BAUDRATE(4800);
-    CASE_BAUDRATE(9600);
-    CASE_BAUDRATE(19200);
-    CASE_BAUDRATE(38400);
-    CASE_BAUDRATE(57600);
-    CASE_BAUDRATE(115200);
-  default:
-    fprintf(stderr, "Unsupported baud rate (must be one of 1200, 1800, 2400, "
-                    "4800, 9600, 19200, 38400, 57600, 115200)\n");
-    return -1;
-  }
+    tcflag_t br;
+    switch (baudRate)
+    {
+        CASE_BAUDRATE(1200);
+        CASE_BAUDRATE(1800);
+        CASE_BAUDRATE(2400);
+        CASE_BAUDRATE(4800);
+        CASE_BAUDRATE(9600);
+        CASE_BAUDRATE(19200);
+        CASE_BAUDRATE(38400);
+        CASE_BAUDRATE(57600);
+        CASE_BAUDRATE(115200);
+    default:
+        fprintf(stderr, "Unsupported baud rate\n");
+        return -1;
+    }
 #undef CASE_BAUDRATE
 
-  // New port settings
-  struct termios newtio;
-  memset(&newtio, 0, sizeof(newtio));
+    struct termios newtio;
+    memset(&newtio, 0, sizeof(newtio));
 
-  newtio.c_cflag = br | CS8 | CLOCAL | CREAD;
-  newtio.c_iflag = IGNPAR;
-  newtio.c_oflag = 0;
+    newtio.c_cflag = br | CS8 | CLOCAL | CREAD;
+    newtio.c_iflag = IGNPAR;
+    newtio.c_oflag = 0;
+    newtio.c_lflag = 0;
+    newtio.c_cc[VTIME] = 1; // 0.1 s timeout per read
+    newtio.c_cc[VMIN] = 0;  // non-blocking read
 
-  // Set input mode (non-canonical, no echo,...)
-  newtio.c_lflag = 0;
-  newtio.c_cc[VTIME] = 0; // Block reading
-  newtio.c_cc[VMIN] = 1;  // Byte by byte
+    tcflush(fd, TCIOFLUSH);
 
-  tcflush(fd, TCIOFLUSH);
+    if (tcsetattr(fd, TCSANOW, &newtio) == -1)
+    {
+        perror("tcsetattr");
+        close(fd);
+        return -1;
+    }
 
-  // Set new port settings
-  if (tcsetattr(fd, TCSANOW, &newtio) == -1) {
-    perror("tcsetattr");
-    close(fd);
-    return -1;
-  }
+    oflags ^= O_NONBLOCK;
+    if (fcntl(fd, F_SETFL, oflags) == -1)
+    {
+        perror("fcntl");
+        close(fd);
+        return -1;
+    }
 
-  // Clear O_NONBLOCK flag to ensure blocking reads
-  oflags ^= O_NONBLOCK;
-  if (fcntl(fd, F_SETFL, oflags) == -1) {
-    perror("fcntl");
-    close(fd);
-    return -1;
-  }
-
-  return fd;
+    return fd;
 }
 
-// Restore original port settings and close the serial port.
-// Returns 0 on success and -1 on error.
-int closeSerialPort() {
-  // Restore the old port settings
-  if (tcsetattr(fd, TCSANOW, &oldtio) == -1) {
-    perror("tcsetattr");
-    return -1;
-  }
-
-  return close(fd);
+int closeSerialPort()
+{
+    if (tcsetattr(fd, TCSANOW, &oldtio) == -1)
+    {
+        perror("tcsetattr");
+        return -1;
+    }
+    return close(fd);
 }
 
-// Wait up to 0.1 second (VTIME) for a byte received from the serial port.
-// Must check whether a byte was actually received from the return value.
-// Save the received byte in the "byte" pointer.
-// Returns -1 on error, 0 if no byte was received, 1 if a byte was received.
-int readByteSerialPort(unsigned char *byte) { return read(fd, byte, 1); }
+int readByteSerialPort(unsigned char *byte)
+{
+    return read(fd, byte, 1);
+}
 
-// Write up to numBytes from the "bytes" array to the serial port.
-// Must check how many were actually written in the return value.
-// Returns -1 on error, otherwise the number of bytes written.
-int writeBytesSerialPort(const unsigned char *bytes, int nBytes) {
-  return write(fd, bytes, nBytes);
+int writeBytesSerialPort(const unsigned char *bytes, int nBytes)
+{
+    return write(fd, bytes, nBytes);
 }

@@ -63,14 +63,13 @@ int main(int argc, char *argv[]) {
   // the program.
   unsigned char buf[BUF_SIZE];
   int nBytesBuf = 0;
-
+int byteCounter = 0;
   while (STOP == FALSE) {
     unsigned char byte;
     int bytes = readByteSerialPort(&byte);
     if (bytes > 0) {
       buf[nBytesBuf++] = byte;
 
-      // Check if we received a full 5-byte frame
       if (nBytesBuf >= 5) {
         if (buf[0] == 0x7E && buf[4] == 0x7E) {
           unsigned char A = buf[1];
@@ -80,7 +79,7 @@ int main(int argc, char *argv[]) {
           if (C == 0x03 && BCC == (A ^ C)) {
             printf("SET frame received\n");
 
-            // Build and send UA frame
+
             unsigned char uaFrame[5];
             uaFrame[0] = 0x7E;
             uaFrame[1] = 0x01; // Receiver -> Sender
@@ -94,14 +93,14 @@ int main(int argc, char *argv[]) {
             STOP = TRUE;
           }
         }
-        nBytesBuf = 0; // Reset buffer
+        byteCounter += nBytesBuf;
+        nBytesBuf = 0;
       }
     }
   }
 
-  printf("Total bytes received: %d\n", nBytesBuf);
+  printf("Total bytes received: %d\n", byteCounter);
 
-  // Close serial port
   if (closeSerialPort() < 0) {
     perror("closeSerialPort");
     exit(-1);
