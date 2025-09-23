@@ -91,6 +91,31 @@ Make sure you use the correct device name for your system (e.g., `/dev/ttyS0`, `
 
 ---
 
+### Test Procedure with `screen`
+You can verify that the virtual cable works without running your own programs:
+
+1. **Keep the cable emulator running** in one terminal:
+   ```bash
+   ./cable
+   ```
+   (this must stay open).
+
+2. **Open one end** of the cable in a second terminal:
+   ```bash
+   screen /dev/ttys002 9600
+   ```
+
+3. **Open the other end** in a third terminal:
+   ```bash
+   screen /dev/ttys004 9600
+   ```
+
+4. Type characters in one window — they should appear in the other.
+
+5. To exit `screen`: press `Ctrl+A`, then `\`, then confirm with `y`.
+
+---
+
 ## Notes
 - Extend `read_noncanonical.c` and `write_noncanonical.c` to implement the full lab protocol (SET/UA exchange, disconnection, data transfer).  
 - You must have permission to access the serial device files. If necessary, run with `sudo` or adjust group permissions.  
