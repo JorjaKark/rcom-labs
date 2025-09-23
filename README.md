@@ -100,19 +100,32 @@ You can verify that the virtual cable works without running your own programs:
    ```
    (this must stay open).
 
-2. **Open one end** of the cable in a second terminal:
+2. **Check the symlinks created**:
+   ```bash
+   ls -l ttyS10 ttyS11
+   ```
+   Example output:
+   ```
+   ttyS10 -> /dev/ttys002
+   ttyS11 -> /dev/ttys004
+   ```
+   In this case, the real devices are `/dev/ttys002` and `/dev/ttys004`.
+
+3. **Open one end** of the cable in a second terminal:
    ```bash
    screen /dev/ttys002 9600
    ```
 
-3. **Open the other end** in a third terminal:
+4. **Open the other end** in a third terminal:
    ```bash
    screen /dev/ttys004 9600
    ```
 
-4. Type characters in one window — they should appear in the other.
+5. Type characters in one window — they should appear in the other.
 
-5. To exit `screen`: press `Ctrl+A`, then `\`, then confirm with `y`.
+6. To exit `screen`: press `Ctrl+A`, then `\`, then confirm with `y`.
+
+**Note:** Always use the **real `/dev/ttysXXX` device** (the right-hand side of the symlink), since `screen` may not recognize the relative symlink `./ttyS10`.
 
 ---
 
