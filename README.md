@@ -128,6 +128,8 @@ You can verify that the virtual cable works without running your own programs:
 **Note:** Always use the **real `/dev/ttysXXX` device** (the right-hand side of the symlink), since `screen` may not recognize the relative symlink `./ttyS10`.
 
 ---
+
+## Result
 <img width="539" height="73" alt="image" src="https://github.com/user-attachments/assets/97f52edf-f737-48fb-b013-c2808c62db2c" />
 
 <img width="550" height="71" alt="image" src="https://github.com/user-attachments/assets/14ee7f7e-319d-4016-a0e2-e3f52ce7c3b2" />
