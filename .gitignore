@@ -7,6 +7,11 @@ read_noncanonical
 write_noncanonical
 serial
 noncanonical
+cable
+emulatorRx
+emulatorTx
+ttyS10
+ttyS11
 
 # Backup / temporary files
 *~
