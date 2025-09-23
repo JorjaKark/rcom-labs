@@ -88,7 +88,11 @@ int byteCounter = 0;
             uaFrame[4] = 0x7E;
 
             writeBytesSerialPort(uaFrame, 5);
-            printf("UA frame sent\n");
+            printf("UA frame sent: ");
+            for (int i = 0; i < 5; i++) {
+              printf("0x%02X ", (unsigned int)(uaFrame[i] & 0xFF));
+            }
+            printf("\n");
 
             STOP = TRUE;
           }
