@@ -130,7 +130,8 @@ You can verify that the virtual cable works without running your own programs:
 ---
 <img width="539" height="73" alt="image" src="https://github.com/user-attachments/assets/97f52edf-f737-48fb-b013-c2808c62db2c" />
 
-<img width="533" height="72" alt="image" src="https://github.com/user-attachments/assets/b9f41eac-57b4-4e5e-b47f-5c8a982b0e6e" />
+<img width="550" height="71" alt="image" src="https://github.com/user-attachments/assets/14ee7f7e-319d-4016-a0e2-e3f52ce7c3b2" />
+
 
 ## Notes
 - Extend `read_noncanonical.c` and `write_noncanonical.c` to implement the full lab protocol (SET/UA exchange, disconnection, data transfer).  
