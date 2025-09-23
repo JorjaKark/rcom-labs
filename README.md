@@ -128,6 +128,9 @@ You can verify that the virtual cable works without running your own programs:
 **Note:** Always use the **real `/dev/ttysXXX` device** (the right-hand side of the symlink), since `screen` may not recognize the relative symlink `./ttyS10`.
 
 ---
+<img width="539" height="73" alt="image" src="https://github.com/user-attachments/assets/97f52edf-f737-48fb-b013-c2808c62db2c" />
+
+<img width="533" height="72" alt="image" src="https://github.com/user-attachments/assets/b9f41eac-57b4-4e5e-b47f-5c8a982b0e6e" />
 
 ## Notes
 - Extend `read_noncanonical.c` and `write_noncanonical.c` to implement the full lab protocol (SET/UA exchange, disconnection, data transfer).  
