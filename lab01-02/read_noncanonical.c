@@ -1,51 +1,39 @@
-// Receiver with state machine
-// Based on the original read_noncanonical.c and extended with state machine
+// Example of how to read from the serial port in non-canonical mode
 //
 // Modified by: Eduardo Nuno Almeida [enalmeida@fe.up.pt]
-// Further organized with full serial port library
+// Extended with state machine for SET detection
 
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <termios.h>
 #include <unistd.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-
-
 
 #define _POSIX_SOURCE 1 // POSIX compliant source
+
+#define FALSE 0
+#define TRUE 1
 
 #define BAUDRATE 38400
 #define BUF_SIZE 256
 
 #define FLAG 0x7E
-#define A    0x03   // Address field: sender → receiver
-#define C_SET 0x03  // Control field: SET
-#define C_UA  0x07  // Control field: UA
+#define A_SENDER 0x03
+#define A_RECEIVER 0x01
+#define C_SET 0x03
+#define C_UA 0x07
 
-int fd = -1;            // File descriptor for open serial port
-struct termios oldtio;  // Serial port settings to restore on closing
+int fd = -1;           // File descriptor for open serial port
+struct termios oldtio; // Serial port settings to restore on closing
+volatile int STOP = FALSE;
 
-// ---------------------------------------------------
-// SERIAL PORT LIBRARY PROTOTYPES
-// ---------------------------------------------------
 int openSerialPort(const char *serialPort, int baudRate);
 int closeSerialPort();
 int readByteSerialPort(unsigned char *byte);
 int writeBytesSerialPort(const unsigned char *bytes, int nBytes);
-
-// ---------------------------------------------------
-// STATE MACHINE
-// ---------------------------------------------------
-typedef enum { START, FLAG_RCV, A_RCV, C_RCV, BCC_OK, STOP } State;
-
-void sendUA() {
-    unsigned char uaFrame[5] = {FLAG, 0x01, C_UA, 0x01 ^ C_UA, FLAG};
-    writeBytesSerialPort(uaFrame, 5);
-    printf("UA frame sent\n");
-}
 
 // ---------------------------------------------------
 // MAIN
@@ -68,66 +56,58 @@ int main(int argc, char *argv[]) {
 
     printf("Serial port %s opened\n", serialPort);
 
-    State state = START;
+    // State machine states
+    enum State { START, FLAG_RCV, A_RCV, C_RCV, BCC_OK, END };
+    enum State state = START;
+
     unsigned char byte;
 
-    while (state != STOP) {
-        if (readByteSerialPort(&byte) > 0) {
+    while (STOP == FALSE) {
+        int r = readByteSerialPort(&byte);
+        if (r > 0) {
             switch (state) {
-                case START:
-                    if (byte == FLAG) {
-                        state = FLAG_RCV;
-                        printf("FLAG received\n");
-                    }
-                    break;
+            case START:
+                if (byte == FLAG) state = FLAG_RCV;
+                break;
 
-                case FLAG_RCV:
-                    if (byte == A) {
-                        state = A_RCV;
-                        printf("A field received\n");
-                    } else if (byte != FLAG) {
-                        state = START;
-                    }
-                    break;
+            case FLAG_RCV:
+                if (byte == A_SENDER) state = A_RCV;
+                else if (byte != FLAG) state = START;
+                break;
 
-                case A_RCV:
-                    if (byte == C_SET) {
-                        state = C_RCV;
-                        printf("C field (SET) received\n");
-                    } else if (byte == FLAG) {
-                        state = FLAG_RCV;
-                    } else {
-                        state = START;
-                    }
-                    break;
+            case A_RCV:
+                if (byte == C_SET) state = C_RCV;
+                else if (byte == FLAG) state = FLAG_RCV;
+                else state = START;
+                break;
 
-                case C_RCV:
-                    if (byte == (A ^ C_SET)) {
-                        state = BCC_OK;
-                        printf("BCC OK\n");
-                    } else if (byte == FLAG) {
-                        state = FLAG_RCV;
-                    } else {
-                        state = START;
-                    }
-                    break;
+            case C_RCV:
+                if (byte == (A_SENDER ^ C_SET)) state = BCC_OK;
+                else if (byte == FLAG) state = FLAG_RCV;
+                else state = START;
+                break;
 
-                case BCC_OK:
-                    if (byte == FLAG) {
-                        state = STOP;
-                    } else {
-                        state = START;
-                    }
-                    break;
+            case BCC_OK:
+                if (byte == FLAG) state = END;
+                else state = START;
+                break;
 
-                default:
-                    state = START;
+            case END:
+                STOP = TRUE;
+                break;
             }
         }
     }
 
-    printf("SET frame received successfully!\n");
-    sendUA();
+    if (state == END) {
+        printf("SET frame received\n");
+
+        // Send UA frame
+        unsigned char uaFrame[5] = {FLAG, A_RECEIVER, C_UA, A_RECEIVER ^ C_UA, FLAG};
+        writeBytesSerialPort(uaFrame, 5);
+
+        printf("UA frame sent\n");
+    }
 
     if (closeSerialPort() < 0) {
         perror("closeSerialPort");
@@ -135,11 +115,12 @@ int main(int argc, char *argv[]) {
     }
 
     printf("Serial port %s closed\n", serialPort);
+
     return 0;
 }
 
 // ---------------------------------------------------
-// SERIAL PORT LIBRARY IMPLEMENTATION
+// SERIAL PORT LIBRARY IMPLEMENTATION (unchanged)
 // ---------------------------------------------------
 int openSerialPort(const char *serialPort, int baudRate) {
     int oflags = O_RDWR | O_NOCTTY | O_NONBLOCK;
@@ -183,8 +164,8 @@ int openSerialPort(const char *serialPort, int baudRate) {
     newtio.c_iflag = IGNPAR;
     newtio.c_oflag = 0;
     newtio.c_lflag = 0;
-    newtio.c_cc[VTIME] = 0; // blocking read
-    newtio.c_cc[VMIN] = 1;  // byte by byte
+    newtio.c_cc[VTIME] = 0;
+    newtio.c_cc[VMIN] = 1;
 
     tcflush(fd, TCIOFLUSH);
 
@@ -194,7 +175,6 @@ int openSerialPort(const char *serialPort, int baudRate) {
         return -1;
     }
 
-    // Clear O_NONBLOCK flag for blocking reads
     oflags ^= O_NONBLOCK;
     if (fcntl(fd, F_SETFL, oflags) == -1) {
         perror("fcntl");
@@ -210,6 +190,7 @@ int closeSerialPort() {
         perror("tcsetattr");
         return -1;
     }
+
     return close(fd);
 }
 
