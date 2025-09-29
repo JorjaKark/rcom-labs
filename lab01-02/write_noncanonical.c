@@ -12,7 +12,6 @@
 #include <sys/stat.h>
 #include <time.h>
 
-
 #define _POSIX_SOURCE 1 // POSIX compliant source
 
 #define FALSE 0
@@ -28,33 +27,30 @@
 #define MAX_RETRIES 3
 #define TIMEOUT 3   // seconds
 
-
-
 int fd = -1;            // File descriptor for open serial port
 struct termios oldtio;  // Serial port settings to restore on closing
-
-#define FALSE 0
-#define TRUE 1
 
 int alarmEnabled = FALSE;
 int retransmissions = 0;
 int uaReceived = 0;
 
-
 // ---------------------------------------------------
 // SERIAL PORT LIBRARY
 // ---------------------------------------------------
-
 int openSerialPort(const char *serialPort, int baudRate);
 int closeSerialPort();
 int readByteSerialPort(unsigned char *byte);
 int writeBytesSerialPort(const unsigned char *bytes, int nBytes);
 
+// ---------------------------------------------------
+// ALARM HANDLER + SEND
+// ---------------------------------------------------
 void alarmHandler(int signal)
 {
-     (void)signal; 
+    (void)signal; 
     alarmEnabled = FALSE;
-
+    retransmissions++;
+    printf("Timeout #%d: retransmitting SET\n", retransmissions);
 }
 
 void sendSET() {
@@ -66,7 +62,6 @@ void sendSET() {
 // ---------------------------------------------------
 // MAIN
 // ---------------------------------------------------
-
 int main(int argc, char *argv[])
 {
     if (argc < 2) {
@@ -128,7 +123,6 @@ int main(int argc, char *argv[])
 // ---------------------------------------------------
 // SERIAL PORT LIBRARY IMPLEMENTATION
 // ---------------------------------------------------
-
 int openSerialPort(const char *serialPort, int baudRate)
 {
     int oflags = O_RDWR | O_NOCTTY | O_NONBLOCK;
