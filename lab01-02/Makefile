@@ -1,18 +1,40 @@
-# Makefile for Lab 1 - Second Class
-# Builds transmitter and receiver
+CC      = gcc
+CFLAGS  = -Wall -Wextra -g
+OBJDIR  = .obj
 
-CC = gcc
-CFLAGS = -Wall -Wextra -O2
+NAME1   = read_noncanonical
+NAME2   = write_noncanonical
 
-# Default target: build both programs
-all: transmitter receiver
 
-transmitter: transmitter.c
-	$(CC) $(CFLAGS) -o $@ $<
+SRC1    = read_noncanonical.c
+SRC2    = write_noncanonical.c
 
-receiver: receiver.c
-	$(CC) $(CFLAGS) -o $@ $<
 
-# Clean up build artifacts
+OBJ1    = $(OBJDIR)/$(SRC1:.c=.o)
+OBJ2    = $(OBJDIR)/$(SRC2:.c=.o)
+
+
+all: $(NAME1) $(NAME2)
+
+$(NAME1): $(OBJ1)
+	$(CC) $(CFLAGS) -o $@ $^
+
+$(NAME2): $(OBJ2)
+	$(CC) $(CFLAGS) -o $@ $^
+
+
+$(OBJDIR)/%.o: %.c | $(OBJDIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJDIR):
+	mkdir -p $(OBJDIR)
+
 clean:
-	rm -f transmitter receiver *.o
+	rm -rf $(OBJDIR)
+
+fclean: clean
+	rm -f $(NAME1) $(NAME2) 
+
+re: fclean all
+
+.PHONY: all clean fclean re
