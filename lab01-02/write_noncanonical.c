@@ -221,3 +221,5 @@ int readByteSerialPort(unsigned char *byte) {
 int writeBytesSerialPort(const unsigned char *bytes, int nBytes) {
     return write(fd, bytes, nBytes);
 }
+
+
