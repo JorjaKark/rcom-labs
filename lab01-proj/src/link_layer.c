@@ -88,8 +88,8 @@ static void alarmHandler(int signal) {
 }
 
 // Running sequence state (Stop-and-Wait)
-static unsigned char g_tx_ns;      // transmitter next sequence number (0/1)
-static unsigned char g_rx_expected; // receiver expected Ns (0/1)
+static unsigned char g_tx_ns = 0;      // transmitter next sequence number (0/1)
+static unsigned char g_rx_expected = 0; // receiver expected Ns (0/1)
 
 // Build FLAG A C BCC1 FLAG into out[5]
 static int build_supervision(unsigned char A, unsigned char C,
@@ -244,10 +244,7 @@ int llopen(LinkLayer connectionParameters) {
 // I-frame Control values (Ns)
 #define C_I0 0x00
 #define C_I1 0x80
-// Running sequence state (Stop-and-Wait)
-static unsigned char g_tx_ns = 0; // transmitter next sequence number (0/1)
-static unsigned char g_rx_expected =
-    0; // receiver expected Ns (0/1)// BCC2: XOR of all data bytes
+
 static unsigned char bcc2_calc(const unsigned char *buf, int len) {
   unsigned char x = 0x00;
   for (int i = 0; i < len; ++i)
