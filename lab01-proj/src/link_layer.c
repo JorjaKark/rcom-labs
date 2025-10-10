@@ -6,6 +6,8 @@
 #include <signal.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdio.h>
+
 
 // MISC
 #define _POSIX_SOURCE 1 // POSIX compliant source
@@ -26,6 +28,12 @@
 #define C_RR1 0xAB
 #define C_REJ0 0x54
 #define C_REJ1 0x55
+
+// Link context saved at llopen() for later use (M4/M5)
+static int g_role = 0;          // LlTx or LlRx
+static int g_timeout_sec = 0;   // connectionParameters.timeout
+static int g_max_retx = 0;      // connectionParameters.nRetransmissions
+
 
 typedef enum { ST_START, ST_FLAG, ST_A, ST_C, ST_BCC_OK, ST_END } SuState;
 
@@ -110,6 +118,13 @@ int llopen(LinkLayer connectionParameters) {
   if (openSerialPort(connectionParameters.serialPort,
                      connectionParameters.baudRate) < 0)
     return -1;
+
+
+// Save context for M4/M5
+g_role = connectionParameters.role;
+g_timeout_sec = connectionParameters.timeout;
+g_max_retx = connectionParameters.nRetransmissions;
+
 
   // 2) Branch by role
   if (connectionParameters.role == LlTx) {
@@ -237,7 +252,7 @@ int llopen(LinkLayer connectionParameters) {
 #define ESC_XOR 0x20
 
 // Reasonable upper bounds
-#define MAX_IFRAME_DATA MAX_PAYLOAD_SIZE // maximum data bytes in an I-frame
+#define MAX_IFRAME_DATA   (MAX_PAYLOAD_SIZE + 8) // maximum data bytes in an I-frame
 #define MAX_STUFFED(x)                                                         \
   (2 * (x) + 16) // worst-case: every byte needs escaping + header slack
 
@@ -324,52 +339,79 @@ static int build_iframe(unsigned char A, unsigned char C,
 // Waits for: FLAG A C BCC1 FLAG, validates A and BCC1, returns 1 and writes
 // *Cout. Blocks (no timer here; timers arrive in M4). Returns -1 on read or
 // format error.
-static int read_supervision_any(unsigned char expectedA, unsigned char *Cout) {
-  enum { ST_S, ST_F, ST_A, ST_C, ST_B, ST_END } st = ST_S;
-  unsigned char A = 0, C = 0, B = 0, b = 0;
+// Read a single supervision (S/U) frame and return its Control (C) byte.
+// Waits for: FLAG A C BCC1 FLAG, validates A and BCC1, returns 1 and writes *Cout.
+// Blocks (until SIGALRM interrupts an underlying read). Returns -1 on read error.
+static int read_supervision_any(unsigned char expectedA, unsigned char *Cout)
+{
+    enum { ST_S, ST_F, ST_A, ST_C, ST_B } st = ST_S;
+    unsigned char A = 0, C = 0, B = 0, b = 0;
 
-  while (1) {
-    int r = readByteSerialPort(&b);
-    if (r < 0)
-      return -1;
-    if (r == 0)
-      continue;
-
-    switch (st) {
-    case ST_S:
-      if (b == FLAG)
-        st = ST_F;
-      break;
-    case ST_F:
-      if (b == expectedA) {
-        A = b;
-        st = ST_A;
-      } else if (b != FLAG)
-        st = ST_S;
-      break;
-    case ST_A:
-      C = b;
-      st = ST_C;
-      break;
-    case ST_C:
-      B = b;
-      st = ST_B;
-      break;
-    case ST_B:
-      if (b == FLAG) {
-        if (B == (unsigned char)(A ^ C)) {
-          if (Cout)
-            *Cout = C;
-          return 1;
+    for (;;) {
+        int r = readByteSerialPort(&b);
+        if (r < 0) {
+            fprintf(stderr, "[LL][S/U] read error\n");
+            return -1;
         }
-      }
-      st = ST_S; // restart if header invalid or wrong closing
-      break;
-    default:
-      break;
+        if (r == 0) continue;
+
+        switch (st) {
+        case ST_S:
+            if (b == FLAG) {
+                st = ST_F;
+                // fprintf(stderr, "[LL][S/U] FLAG(open)\n");
+            }
+            break;
+
+        case ST_F:
+            if (b == expectedA) {
+                A = b; st = ST_A;
+            } else if (b != FLAG) {
+                // wrong address — restart
+                // fprintf(stderr, "[LL][S/U] bad A=0x%02X (want 0x%02X)\n", b, expectedA);
+                st = ST_S;
+            }
+            break;
+
+        case ST_A:
+            C = b;
+            st = ST_C;
+            break;
+
+        case ST_C:
+            B = b;
+            st = ST_B;
+            break;
+
+        case ST_B:
+            if (b == FLAG) {
+                if (B == (unsigned char)(A ^ C)) {
+                    if (Cout) *Cout = C;
+
+                    // Friendly label for C
+                    const char *label = "S/U";
+                    if (C == C_UA)      label = "UA";
+                    else if (C == C_SET)  label = "SET";
+                    else if (C == C_DISC) label = "DISC";
+                    else if (C == C_RR0)  label = "RR0";
+                    else if (C == C_RR1)  label = "RR1";
+                    else if (C == C_REJ0) label = "REJ0";
+                    else if (C == C_REJ1) label = "REJ1";
+
+                    fprintf(stderr, "[LL][S/U] OK A=0x%02X C=0x%02X (%s)\n", A, C, label);
+                    return 1;
+                } else {
+                    fprintf(stderr, "[LL][S/U] bad BCC1: got 0x%02X expect 0x%02X (A^C)\n",
+                            B, (unsigned char)(A ^ C));
+                }
+            }
+            // restart if header invalid or wrong closing
+            st = ST_S;
+            break;
+        }
     }
-  }
 }
+
 
 // Read one Information frame into dataOut. Validates header + BCC2.
 // Returns payload length (>=0) and sets *Cout to I-frame C (0x00 or 0x80).
@@ -444,67 +486,147 @@ static int read_iframe(unsigned char expectedA, unsigned char *Cout,
     *Cout = C;
   return payloadLen;
 }
-// Send RR(Nr)
-static int send_rr(unsigned char Nr) {
-  unsigned char c = (Nr == 0) ? C_RR0 : C_RR1;
-  unsigned char f[5];
-  build_supervision(A_TX_CMD_OR_RX_REPLY, c, f);
-  return (writeBytesSerialPort(f, 5) == 5) ? 0 : -1;
+static int send_rr(unsigned char Nr)
+{
+    unsigned char c = (Nr == 0) ? C_RR0 : C_RR1;
+    unsigned char f[5];
+    build_supervision(A_RX_CMD_OR_TX_REPLY, c, f);
+    int w = writeBytesSerialPort(f, 5);
+    fprintf(stderr, "[LL][RX] → RR%u (w=%d)\n", (unsigned)Nr, w);
+    return (w == 5) ? 0 : -1;
 }
 
-// Send REJ(Nr)
-static int send_rej(unsigned char Nr) {
-  unsigned char c = (Nr == 0) ? C_REJ0 : C_REJ1;
-  unsigned char f[5];
-  build_supervision(A_TX_CMD_OR_RX_REPLY, c, f);
-  return (writeBytesSerialPort(f, 5) == 5) ? 0 : -1;
+static int send_rej(unsigned char Nr)
+{
+    unsigned char c = (Nr == 0) ? C_REJ0 : C_REJ1;
+    unsigned char f[5];
+    build_supervision(A_RX_CMD_OR_TX_REPLY, c, f);
+    int w = writeBytesSerialPort(f, 5);
+    fprintf(stderr, "[LL][RX] → REJ%u (w=%d)\n", (unsigned)Nr, w);
+    return (w == 5) ? 0 : -1;
 }
+
 
 ////////////////////////////////////////////////
 // LLWRITE
 ////////////////////////////////////////////////
-int llwrite(const unsigned char *buf, int bufSize) {
-  if (bufSize < 0 || bufSize > MAX_IFRAME_DATA)
-    return -1;
-
-  // 1) Choose C by Ns (0x00 for Ns=0, 0x80 for Ns=1)
-  unsigned char C = (g_tx_ns == 0) ? C_I0 : C_I1;
-
-  // 2) Build I-frame
-  unsigned char frame[MAX_STUFFED(MAX_IFRAME_DATA) + 16];
-  int flen =
-      build_iframe(A_TX_CMD_OR_RX_REPLY, C, buf, bufSize, frame, sizeof(frame));
-  if (flen < 0)
-    return -1;
-
-  // 3) Send I-frame
-  if (writeBytesSerialPort(frame, flen) != flen)
-    return -1;
-
-  // 4) Wait for RR/REJ (no timer here; M4 adds timeout and retransmissions)
-  while (1) {
-    unsigned char c = 0;
-    int ok = read_supervision_any(A_TX_CMD_OR_RX_REPLY, &c);
-    if (ok < 0)
-      return -1; // read error
-
-    // Accept only RR/REJ controls
-    if (c == C_RR0 || c == C_RR1) {
-      unsigned char nr = (c == C_RR0) ? 0 : 1;
-      // In Stop-and-Wait, RR(Nr) should acknowledge Ns, so Nr == Ns^1
-      if (nr == (unsigned char)(g_tx_ns ^ 1)) {
-        g_tx_ns ^= 1; // advance sequence on valid ACK
-        return bufSize;
-      }
-      // Otherwise ignore spurious RR and keep waiting
-    } else if (c == C_REJ0 || c == C_REJ1) {
-      // Receiver signaled error: leave retransmission to M4
-      return -1;
-    } else {
-      // Ignore unrelated supervision frames (e.g., DISC during close, etc.)
+int llwrite(const unsigned char *buf, int bufSize)
+{
+    if (bufSize < 0 || bufSize > MAX_IFRAME_DATA) {
+        fprintf(stderr, "[LL][TX] invalid bufSize=%d\n", bufSize);
+        return -1;
     }
-  }
+
+    // (re)install SIGALRM handler (safe)
+    struct sigaction act = {0};
+    act.sa_handler = alarmHandler;
+    sigemptyset(&act.sa_mask);
+    if (sigaction(SIGALRM, &act, NULL) == -1) {
+        perror("[LL][TX] sigaction");
+        return -1;
+    }
+
+    // Choose C by Ns
+    unsigned char C = (g_tx_ns == 0) ? C_I0 : C_I1;
+
+    // Build frame once (we’ll retransmit the exact same bytes)
+    unsigned char frame[MAX_STUFFED(MAX_IFRAME_DATA) + 16];
+    int flen = build_iframe(A_TX_CMD_OR_RX_REPLY, C, buf, bufSize, frame, sizeof(frame));
+    if (flen < 0) {
+        fprintf(stderr, "[LL][TX] build_iframe failed (Ns=%u)\n", (unsigned)g_tx_ns);
+        return -1;
+    }
+
+    int attempts = 0;
+    alarmEnabled = 0;
+    alarmCount = 0;
+
+    fprintf(stderr, "[LL][TX] send I(Ns=%u) len=%d\n", (unsigned)g_tx_ns, flen);
+
+    while (attempts < g_max_retx) {
+
+        // (Re)send if no timer is active
+        if (!alarmEnabled) {
+            int w = writeBytesSerialPort(frame, flen);
+            if (w != flen) {
+                fprintf(stderr, "[LL][TX] write failed (%d/%d)\n", w, flen);
+                return -1;
+            }
+            alarm(g_timeout_sec);
+            alarmEnabled = 1;
+            fprintf(stderr, "[LL][TX] frame sent, arming %ds (try %d/%d)\n",
+                    g_timeout_sec, attempts+1, g_max_retx);
+        }
+
+        // Wait for RR/REJ from receiver (A must be 0x01)
+        unsigned char c = 0;
+        int ok = read_supervision_any(A_RX_CMD_OR_TX_REPLY, &c);
+
+        if (ok == 1) {
+            // We accepted a valid S/U frame
+            fprintf(stderr, "[LL][TX] got S/U C=0x%02X (expect RR%u)\n", c, (g_tx_ns ^ 1));
+
+            if (c == C_RR0 || c == C_RR1) {
+                unsigned char nr = (c == C_RR1) ? 1 : 0;
+                if (nr == (unsigned char)(g_tx_ns ^ 1)) {
+                    alarm(0);
+                    alarmEnabled = 0;
+                    g_tx_ns ^= 1;
+                    fprintf(stderr, "[LL][TX] ACK OK → advance Ns=%u, deliver %d bytes\n",
+                            (unsigned)g_tx_ns, bufSize);
+                    return bufSize;
+                } else {
+                    fprintf(stderr, "[LL][TX] RR with wrong Nr=%u (want %u) — ignore\n",
+                            (unsigned)nr, (unsigned)(g_tx_ns ^ 1));
+                    continue;
+                }
+            }
+            else if (c == C_REJ0 || c == C_REJ1) {
+                // Receiver saw an error — force retransmit
+                attempts++;
+                alarm(0);
+                alarmEnabled = 0;
+                fprintf(stderr, "[LL][TX] got REJ → retransmit (attempt %d/%d)\n",
+                        attempts, g_max_retx);
+                continue;
+            }
+            else if (c == C_DISC) {
+                // Peer trying to close mid-transfer
+                alarm(0);
+                alarmEnabled = 0;
+                fprintf(stderr, "[LL][TX] got DISC mid-transfer → abort llwrite\n");
+                return -1;
+            } else {
+                // Other S/U (e.g., UA) — ignore and keep waiting
+                fprintf(stderr, "[LL][TX] ignoring S/U C=0x%02X\n", c);
+                continue;
+            }
+        }
+
+        // ok < 0: either read error or SIGALRM interrupted a read
+        if (!alarmEnabled) {
+            // timer fired → retransmit
+            attempts++;
+            fprintf(stderr, "[LL][TX] timeout → retransmit (attempt %d/%d)\n",
+                    attempts, g_max_retx);
+            // loop continues; will resend due to !alarmEnabled
+        } else {
+            // some other read error (rare) → treat as a failed try and retry
+            attempts++;
+            alarm(0);
+            alarmEnabled = 0;
+            fprintf(stderr, "[LL][TX] read error → retransmit (attempt %d/%d)\n",
+                    attempts, g_max_retx);
+        }
+    }
+
+    // exceeded retransmissions
+    alarm(0);
+    alarmEnabled = 0;
+    fprintf(stderr, "[LL][TX] failed after %d attempts\n", g_max_retx);
+    return -1;
 }
+
 
 ////////////////////////////////////////////////
 // LLREAD
@@ -543,8 +665,105 @@ int llread(unsigned char *packet) {
 ////////////////////////////////////////////////
 // LLCLOSE
 ////////////////////////////////////////////////
-int llclose() {
-  // TODO: Implement this function
+int llclose()
+{
+    // Install SIGALRM handler (safe if already installed)
+    struct sigaction act = {0};
+    act.sa_handler = alarmHandler;
+    sigemptyset(&act.sa_mask);
+    if (sigaction(SIGALRM, &act, NULL) == -1) {
+        closeSerialPort();
+        return -1;
+    }
 
-  return 0;
+    if (g_role == LlTx) {
+        // ----- INITIATOR -----
+        unsigned char disc_tx[5];
+        build_supervision(A_TX_CMD_OR_RX_REPLY, C_DISC, disc_tx);
+
+        int attempts = 0;
+        alarmEnabled = 0;
+        alarmCount = 0;
+
+        while (attempts < g_max_retx) {
+            if (!alarmEnabled) {
+                if (writeBytesSerialPort(disc_tx, 5) != 5) {
+                    closeSerialPort();
+                    return -1;
+                }
+                alarm(g_timeout_sec);
+                alarmEnabled = 1;
+            }
+
+            // Expect peer's DISC with A=0x01
+            unsigned char c = 0;
+            int ok = read_supervision_any(A_RX_CMD_OR_TX_REPLY, &c);
+            if (ok == 1) {
+                if (c == C_DISC) {
+                    // Send final UA with A=0x01
+                    alarm(0);
+                    alarmEnabled = 0;
+
+                    unsigned char ua_tx[5];
+                    build_supervision(A_RX_CMD_OR_TX_REPLY, C_UA, ua_tx);
+                    if (writeBytesSerialPort(ua_tx, 5) != 5) {
+                        closeSerialPort();
+                        return -1;
+                    }
+                    closeSerialPort();
+                    return 0;
+                }
+                // Ignore any other S/U
+                continue;
+            }
+
+            // ok < 0 → timeout or read error
+            if (!alarmEnabled) {
+                // timeout
+                attempts++;
+            } else {
+                // some other read error; try again
+                attempts++;
+                alarm(0);
+                alarmEnabled = 0;
+            }
+        }
+
+        // Failed to complete handshake
+        alarm(0);
+        alarmEnabled = 0;
+        closeSerialPort();
+        return -1;
+
+    } else {
+        // ----- RESPONDER -----
+
+        // 1) Wait for INITIATOR's DISC with A=0x03
+        while (1) {
+            unsigned char c = 0;
+            int ok = read_supervision_any(A_TX_CMD_OR_RX_REPLY, &c);
+            if (ok < 0) { closeSerialPort(); return -1; }
+            if (ok == 1 && c == C_DISC) break;
+            // ignore others
+        }
+
+        // 2) Send DISC with A=0x01
+        unsigned char disc_rx[5];
+        build_supervision(A_RX_CMD_OR_TX_REPLY, C_DISC, disc_rx);
+        if (writeBytesSerialPort(disc_rx, 5) != 5) {
+            closeSerialPort();
+            return -1;
+        }
+
+        // 3) Wait for final UA with A=0x01
+        while (1) {
+            unsigned char c = 0;
+            int ok = read_supervision_any(A_RX_CMD_OR_TX_REPLY, &c);
+            if (ok < 0) { closeSerialPort(); return -1; }
+            if (ok == 1 && c == C_UA) break;
+        }
+
+        closeSerialPort();
+        return 0;
+    }
 }
