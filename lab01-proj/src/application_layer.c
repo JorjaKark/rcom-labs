@@ -119,8 +119,8 @@ static int build_data_packet(unsigned char sequenceNumber,
 
     outBuffer[0] = C_DATA;
     outBuffer[1] = sequenceNumber;
-    outBuffer[2] = (unsigned char)(dataLength & 0xFF);        // L2
-    outBuffer[3] = (unsigned char)((dataLength >> 8) & 0xFF); // L1
+    outBuffer[2] = (unsigned char)((dataLength >> 8) & 0xFF); // L2 (MSB)
+    outBuffer[3] = (unsigned char)(dataLength & 0xFF);        // L1 (LSB)
     if (dataLength > 0 && data)
         memcpy(outBuffer + 4, data, dataLength);
     return requiredLength;
@@ -136,7 +136,7 @@ static int parse_data_packet(const unsigned char *packet, int packetLength,
         return -1;
     if (sequenceOut)
         *sequenceOut = packet[1];
-    int payloadLength = (int)packet[2] | ((int)packet[3] << 8);
+    int payloadLength = ((int)packet[2] << 8) | (int)packet[3]; // 256*L2 + L1
     if (payloadLength < 0 || (4 + payloadLength) > packetLength)
         return -1;
     return payloadLength;
