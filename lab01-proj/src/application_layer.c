@@ -386,7 +386,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             }
             else if (controlType == C_END)
             {
-                // ---- Consistency check ----
+                // ---- Validate that END packet matches START ----
                 char endFileName[256];
                 unsigned long endFileSize = 0;
                 if (parse_control_packet(packet, packetLength, endFileName, sizeof(endFileName), &endFileSize) == 0)
