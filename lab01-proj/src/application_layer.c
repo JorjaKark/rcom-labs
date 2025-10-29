@@ -1,10 +1,10 @@
 #include "application_layer.h"
 #include "link_layer.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
 
 // ---- Application layer control ----
 #define C_START 0x01
@@ -16,11 +16,9 @@
 #define T_FILENAME 0x01
 
 // ---- Build CONTROL packet ----
-static int build_control_packet(unsigned char controlType,
-                                const char *fileName,
+static int build_control_packet(unsigned char controlType, const char *fileName,
                                 unsigned long fileSize,
-                                unsigned char *outBuffer,
-                                int outCapacity)
+                                unsigned char *outBuffer, int outCapacity)
 {
     if (!fileName || !outBuffer)
         return -1;
@@ -110,10 +108,8 @@ static int parse_control_packet(const unsigned char *packet, int packetLength,
 
 // ---- Build DATA packet ----
 static int build_data_packet(unsigned char sequenceNumber,
-                             const unsigned char *data,
-                             int dataLength,
-                             unsigned char *outBuffer,
-                             int outCapacity)
+                             const unsigned char *data, int dataLength,
+                             unsigned char *outBuffer, int outCapacity)
 {
     if (!outBuffer || dataLength < 0 || dataLength > MAX_PAYLOAD_SIZE)
         return -1;
@@ -131,8 +127,7 @@ static int build_data_packet(unsigned char sequenceNumber,
 }
 
 // ---- Parse DATA packet ----
-static int parse_data_packet(const unsigned char *packet,
-                             int packetLength,
+static int parse_data_packet(const unsigned char *packet, int packetLength,
                              unsigned char *sequenceOut)
 {
     if (!packet || packetLength < 4)
@@ -171,7 +166,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     // ---- Open link ----
     if (llopen(link) < 0)
     {
-        fprintf(stderr, "[APP] llopen failed\n");
+        fprintf(stderr, "llopen failed\n");
         return;
     }
 
@@ -181,14 +176,14 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         FILE *inputFile = fopen(filePath, "rb");
         if (!inputFile)
         {
-            perror("[APP] fopen input");
+            perror("fopen input");
             llclose();
             return;
         }
 
         if (fseek(inputFile, 0, SEEK_END) != 0)
         {
-            perror("[APP] fseek");
+            perror("fseek");
             fclose(inputFile);
             llclose();
             return;
@@ -197,7 +192,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         long inputFileLength = ftell(inputFile);
         if (inputFileLength < 0)
         {
-            perror("[APP] ftell");
+            perror("ftell");
             fclose(inputFile);
             llclose();
             return;
@@ -219,10 +214,11 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
         // ---- Send START packet ----
         unsigned char packetBuffer[512];
-        int packetLength = build_control_packet(C_START, baseName, fileSize, packetBuffer, sizeof(packetBuffer));
+        int packetLength = build_control_packet(C_START, baseName, fileSize,
+                                                packetBuffer, sizeof(packetBuffer));
         if (packetLength < 0)
         {
-            fprintf(stderr, "[APP] build START failed\n");
+            fprintf(stderr, "build START failed\n");
             fclose(inputFile);
             llclose();
             return;
@@ -230,7 +226,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
         if (llwrite(packetBuffer, packetLength) < 0)
         {
-            fprintf(stderr, "[APP] llwrite START failed\n");
+            fprintf(stderr, "llwrite START failed\n");
             fclose(inputFile);
             llclose();
             return;
@@ -246,7 +242,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             size_t bytesRead = fread(dataBuffer, 1, MAX_PAYLOAD_SIZE, inputFile);
             if (ferror(inputFile))
             {
-                perror("[APP] fread");
+                perror("fread");
                 fclose(inputFile);
                 llclose();
                 return;
@@ -255,10 +251,12 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             if (bytesRead == 0)
                 break;
 
-            int dataPacketLength = build_data_packet(sequenceNumber, dataBuffer, (int)bytesRead, dataPacket, sizeof(dataPacket));
+            int dataPacketLength =
+                build_data_packet(sequenceNumber, dataBuffer, (int)bytesRead,
+                                  dataPacket, sizeof(dataPacket));
             if (dataPacketLength < 0)
             {
-                fprintf(stderr, "[APP] build DATA failed\n");
+                fprintf(stderr, "build DATA failed\n");
                 fclose(inputFile);
                 llclose();
                 return;
@@ -266,7 +264,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
             if (llwrite(dataPacket, dataPacketLength) < 0)
             {
-                fprintf(stderr, "[APP] llwrite DATA failed (seq=%u)\n", sequenceNumber);
+                fprintf(stderr, "llwrite DATA failed (seq=%u)\n", sequenceNumber);
                 fclose(inputFile);
                 llclose();
                 return;
@@ -276,10 +274,11 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         }
 
         // ---- Send END packet ----
-        packetLength = build_control_packet(C_END, baseName, fileSize, packetBuffer, sizeof(packetBuffer));
+        packetLength = build_control_packet(C_END, baseName, fileSize, packetBuffer,
+                                            sizeof(packetBuffer));
         if (packetLength < 0)
         {
-            fprintf(stderr, "[APP] build END failed\n");
+            fprintf(stderr, "build END failed\n");
             fclose(inputFile);
             llclose();
             return;
@@ -287,7 +286,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
         if (llwrite(packetBuffer, packetLength) < 0)
         {
-            fprintf(stderr, "[APP] llwrite END failed\n");
+            fprintf(stderr, "llwrite END failed\n");
             fclose(inputFile);
             llclose();
             return;
@@ -298,11 +297,11 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         // ---- Close link ----
         if (llclose() < 0)
         {
-            fprintf(stderr, "[APP] llclose failed\n");
+            fprintf(stderr, "llclose failed\n");
             return;
         }
 
-        printf("[APP] Transmission complete: sent %lu bytes\n", fileSize);
+        printf("Transmission complete: sent %lu bytes\n", fileSize);
     }
 
     // ---- Receiver ----
@@ -313,17 +312,18 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
         if (packetLength <= 0 || packet[0] != C_START)
         {
-            fprintf(stderr, "[APP] Expected START, got len=%d C=0x%02X\n",
-                    packetLength, packetLength > 0 ? packet[0] : 0x00);
+            fprintf(stderr, "Expected START, got len=%d C=0x%02X\n", packetLength,
+                    packetLength > 0 ? packet[0] : 0x00);
             llclose();
             return;
         }
 
         char senderFileName[256];
         unsigned long announcedFileSize = 0;
-        if (parse_control_packet(packet, packetLength, senderFileName, sizeof(senderFileName), &announcedFileSize) < 0)
+        if (parse_control_packet(packet, packetLength, senderFileName,
+                                 sizeof(senderFileName), &announcedFileSize) < 0)
         {
-            fprintf(stderr, "[APP] parse START failed\n");
+            fprintf(stderr, "parse START failed\n");
             llclose();
             return;
         }
@@ -331,7 +331,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         FILE *outputFile = fopen(filePath, "wb");
         if (!outputFile)
         {
-            perror("[APP] fopen output");
+            perror("fopen output");
             llclose();
             return;
         }
@@ -345,7 +345,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             packetLength = llread(packet);
             if (packetLength < 0)
             {
-                fprintf(stderr, "[APP] llread error\n");
+                fprintf(stderr, "llread error\n");
                 fclose(outputFile);
                 llclose();
                 return;
@@ -359,10 +359,11 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             if (controlType == C_DATA)
             {
                 unsigned char sequenceNumber = 0;
-                int dataLength = parse_data_packet(packet, packetLength, &sequenceNumber);
+                int dataLength =
+                    parse_data_packet(packet, packetLength, &sequenceNumber);
                 if (dataLength < 0)
                 {
-                    fprintf(stderr, "[APP] bad DATA packet\n");
+                    fprintf(stderr, "bad DATA packet\n");
                     fclose(outputFile);
                     llclose();
                     return;
@@ -372,9 +373,10 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 {
                     if (dataLength > 0)
                     {
-                        if ((int)fwrite(packet + 4, 1, dataLength, outputFile) != dataLength)
+                        if ((int)fwrite(packet + 4, 1, dataLength, outputFile) !=
+                            dataLength)
                         {
-                            perror("[APP] fwrite");
+                            perror("fwrite");
                             fclose(outputFile);
                             llclose();
                             return;
@@ -389,11 +391,12 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 // ---- Validate that END packet matches START ----
                 char endFileName[256];
                 unsigned long endFileSize = 0;
-                if (parse_control_packet(packet, packetLength, endFileName, sizeof(endFileName), &endFileSize) == 0)
+                if (parse_control_packet(packet, packetLength, endFileName,
+                                         sizeof(endFileName), &endFileSize) == 0)
                 {
                     if (endFileSize != announcedFileSize)
                     {
-                        fprintf(stderr, "[APP] Warning: size mismatch START=%lu END=%lu\n",
+                        fprintf(stderr, "Warning: size mismatch START=%lu END=%lu\n",
                                 announcedFileSize, endFileSize);
                     }
                 }
@@ -406,11 +409,11 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         // ---- Close link ----
         if (llclose() < 0)
         {
-            fprintf(stderr, "[APP] llclose failed\n");
+            fprintf(stderr, "llclose failed\n");
             return;
         }
 
-        printf("[APP] Reception complete: announced %lu bytes, wrote %lu bytes\n",
+        printf("Reception complete: announced %lu bytes, wrote %lu bytes\n",
                announcedFileSize, totalReceivedBytes);
     }
 }
