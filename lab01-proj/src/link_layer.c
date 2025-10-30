@@ -295,23 +295,6 @@ static int read_supervision_frame_any(unsigned char expectedAddress,
           if (controlOut)
             *controlOut = C;
 
-          const char *label = "S/U";
-          if (C == C_UA)
-            label = "UA";
-          else if (C == C_SET)
-            label = "SET";
-          else if (C == C_DISC)
-            label = "DISC";
-          else if (C == C_RR0)
-            label = "RR0";
-          else if (C == C_RR1)
-            label = "RR1";
-          else if (C == C_REJ0)
-            label = "REJ0";
-          else if (C == C_REJ1)
-            label = "REJ1";
-
-          fprintf(stderr, "[LL][S/U] OK A=0x%02X C=0x%02X (%s)\n", A, C, label);
           return 1;
         }
         else
@@ -419,7 +402,6 @@ static int send_rr(unsigned char nrExpected)
   unsigned char frame[5];
   build_supervision_frame(A_RX_CMD_OR_TX_REPLY, control, frame);
   int wrote = writeBytesSerialPort(frame, 5);
-  fprintf(stderr, "[LL][RX] → RR%u (w=%d)\n", (unsigned)nrExpected, wrote);
   if (wrote == 5)
   {
     return 0;
@@ -445,7 +427,6 @@ static int send_rej(unsigned char nrExpected)
   unsigned char frame[5];
   build_supervision_frame(A_RX_CMD_OR_TX_REPLY, control, frame);
   int wrote = writeBytesSerialPort(frame, 5);
-  fprintf(stderr, "[LL][RX] → REJ%u (w=%d)\n", (unsigned)nrExpected, wrote);
   if (wrote == 5)
   {
     return 0;
@@ -609,8 +590,6 @@ int llwrite(const unsigned char *appPayload, int appPayloadSize)
   g_alarmEnabled = 0;
   g_alarmCount = 0;
 
-  fprintf(stderr, "[LL][TX] send I(Ns=%u) len=%d\n", (unsigned)g_txNextNs, txLen);
-
   while (attempts < g_maxRetransmissions)
   {
     if (!g_alarmEnabled)
@@ -623,8 +602,6 @@ int llwrite(const unsigned char *appPayload, int appPayloadSize)
       }
       alarm(g_timeoutSeconds);
       g_alarmEnabled = 1;
-      fprintf(stderr, "[LL][TX] frame sent, arming %ds (try %d/%d)\n",
-              g_timeoutSeconds, attempts + 1, g_maxRetransmissions);
     }
 
     unsigned char suControl = 0;
@@ -681,7 +658,6 @@ int llwrite(const unsigned char *appPayload, int appPayloadSize)
       }
       else
       {
-        fprintf(stderr, "[LL][TX] ignoring S/U C=0x%02X\n", suControl);
         continue;
       }
     }
