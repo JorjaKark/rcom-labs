@@ -427,6 +427,9 @@ static int send_rej(unsigned char nrExpected)
   unsigned char frame[5];
   build_supervision_frame(A_RX_CMD_OR_TX_REPLY, control, frame);
   int wrote = writeBytesSerialPort(frame, 5);
+
+  fprintf(stderr, "llread: sent REJ (expected sequence %u)\n", (unsigned)nrExpected);
+
   if (wrote == 5)
   {
     return 0;
@@ -492,6 +495,9 @@ int llopen(LinkLayer connectionParameters)
           g_alarmEnabled = 0;
           g_txNextNs = 0;
           g_rxExpected = 0;
+
+          fprintf(stderr, "llopen: connection established\n");
+
           return 0;
         }
         continue;
@@ -501,6 +507,10 @@ int llopen(LinkLayer connectionParameters)
       {
         attempts++;
         su_reset_state(&suState);
+
+        fprintf(stderr, "llopen: timeout waiting for UA, retrying (attempt %d/%d)\n",
+                attempts, connectionParameters.nRetransmissions);
+
         if (attempts >= connectionParameters.nRetransmissions)
         {
           closeSerialPort();
@@ -770,6 +780,9 @@ int llclose()
             return -1;
           }
           closeSerialPort();
+
+          fprintf(stderr, "llclose: link closed\n");
+
           return 0;
         }
         continue;
@@ -829,6 +842,9 @@ int llclose()
     }
 
     closeSerialPort();
+
+    fprintf(stderr, "llclose: link closed\n");
+
     return 0;
   }
 }
