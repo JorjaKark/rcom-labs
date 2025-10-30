@@ -252,7 +252,7 @@ static int read_supervision_frame_any(unsigned char expectedAddress,
     int r = readByteSerialPort(&byte);
     if (r < 0)
     {
-      fprintf(stderr, "[LL][S/U] read error\n");
+      fprintf(stderr, "read_supervision_frame_any: read error\n");
       return -1;
     }
     if (r == 0)
@@ -299,7 +299,7 @@ static int read_supervision_frame_any(unsigned char expectedAddress,
         }
         else
         {
-          fprintf(stderr, "[LL][S/U] bad BCC1: got 0x%02X expect 0x%02X (A^C)\n",
+          fprintf(stderr, "read_supervision_frame_any: bad BCC1 (got 0x%02X expected 0x%02X)\n",
                   B, (unsigned char)(A ^ C));
         }
       }
@@ -553,7 +553,7 @@ int llwrite(const unsigned char *appPayload, int appPayloadSize)
 {
   if (appPayloadSize < 0 || appPayloadSize > MAX_IFRAME_DATA)
   {
-    fprintf(stderr, "[LL][TX] invalid bufSize=%d\n", appPayloadSize);
+    fprintf(stderr, "llwrite: invalid payload size = %d\n", appPayloadSize);
     return -1;
   }
 
@@ -562,7 +562,7 @@ int llwrite(const unsigned char *appPayload, int appPayloadSize)
   sigemptyset(&act.sa_mask);
   if (sigaction(SIGALRM, &act, NULL) == -1)
   {
-    perror("[LL][TX] sigaction");
+    perror("llwrite: sigaction failed");
     return -1;
   }
 
@@ -582,7 +582,7 @@ int llwrite(const unsigned char *appPayload, int appPayloadSize)
                            txFrame, sizeof(txFrame));
   if (txLen < 0)
   {
-    fprintf(stderr, "[LL][TX] build_iframe failed (Ns=%u)\n", (unsigned)g_txNextNs);
+    fprintf(stderr, "llwrite: build_iframe failed (Ns=%u)\n", (unsigned)g_txNextNs);
     return -1;
   }
 
@@ -597,7 +597,7 @@ int llwrite(const unsigned char *appPayload, int appPayloadSize)
       int written = writeBytesSerialPort(txFrame, txLen);
       if (written != txLen)
       {
-        fprintf(stderr, "[LL][TX] write failed (%d/%d)\n", written, txLen);
+        fprintf(stderr, "llwrite: writeBytesSerialPort wrote %d/%d bytes\n", written, txLen);
         return -1;
       }
       alarm(g_timeoutSeconds);
@@ -609,9 +609,6 @@ int llwrite(const unsigned char *appPayload, int appPayloadSize)
 
     if (ok == 1)
     {
-      fprintf(stderr, "[LL][TX] got S/U C=0x%02X (expect RR%u)\n",
-              suControl, (g_txNextNs ^ 1));
-
       if (suControl == C_RR0 || suControl == C_RR1)
       {
         unsigned char nr;
@@ -629,13 +626,11 @@ int llwrite(const unsigned char *appPayload, int appPayloadSize)
           alarm(0);
           g_alarmEnabled = 0;
           g_txNextNs ^= 1;
-          fprintf(stderr, "[LL][TX] ACK OK → advance Ns=%u, deliver %d bytes\n",
-                  (unsigned)g_txNextNs, appPayloadSize);
           return appPayloadSize;
         }
         else
         {
-          fprintf(stderr, "[LL][TX] RR with wrong Nr=%u (want %u) — ignore\n",
+          fprintf(stderr, "llwrite: received RR for wrong frame (Nr=%u expected=%u)\n",
                   (unsigned)nr, (unsigned)(g_txNextNs ^ 1));
           continue;
         }
@@ -645,7 +640,7 @@ int llwrite(const unsigned char *appPayload, int appPayloadSize)
         attempts++;
         alarm(0);
         g_alarmEnabled = 0;
-        fprintf(stderr, "[LL][TX] got REJ → retransmit (attempt %d/%d)\n",
+        fprintf(stderr, "llwrite: got REJ, retransmitting (attempt %d/%d)\n",
                 attempts, g_maxRetransmissions);
         continue;
       }
@@ -653,7 +648,7 @@ int llwrite(const unsigned char *appPayload, int appPayloadSize)
       {
         alarm(0);
         g_alarmEnabled = 0;
-        fprintf(stderr, "[LL][TX] got DISC mid-transfer → abort llwrite\n");
+        fprintf(stderr, "llwrite: received DISC during transfer\n");
         return -1;
       }
       else
@@ -665,7 +660,7 @@ int llwrite(const unsigned char *appPayload, int appPayloadSize)
     if (!g_alarmEnabled)
     {
       attempts++;
-      fprintf(stderr, "[LL][TX] timeout → retransmit (attempt %d/%d)\n",
+      fprintf(stderr, "llwrite: timeout, retransmitting (attempt %d/%d)\n",
               attempts, g_maxRetransmissions);
     }
     else
@@ -673,14 +668,14 @@ int llwrite(const unsigned char *appPayload, int appPayloadSize)
       attempts++;
       alarm(0);
       g_alarmEnabled = 0;
-      fprintf(stderr, "[LL][TX] read error → retransmit (attempt %d/%d)\n",
+      fprintf(stderr, "llwrite: read error, retransmitting (attempt %d/%d)\n",
               attempts, g_maxRetransmissions);
     }
   }
 
   alarm(0);
   g_alarmEnabled = 0;
-  fprintf(stderr, "[LL][TX] failed after %d attempts\n", g_maxRetransmissions);
+  fprintf(stderr, "llwrite: failed after %d attempts\n", g_maxRetransmissions);
   return -1;
 }
 
