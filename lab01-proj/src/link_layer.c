@@ -132,13 +132,11 @@ static int su_fsm_feed(SuState *state,
 
 // ---- Alarm / timeout ----
 static volatile sig_atomic_t g_alarmEnabled = 0;
-static volatile sig_atomic_t g_alarmCount = 0;
 
 static void alarmHandler(int signal)
 {
   (void)signal;
   g_alarmEnabled = 0;
-  g_alarmCount++;
 }
 
 // ---- BCC2 / stuffing ----
@@ -471,7 +469,6 @@ int llopen(LinkLayer connectionParameters)
     unsigned char incomingByte = 0;
     int attempts = 0;
     g_alarmEnabled = 0;
-    g_alarmCount = 0;
 
     while (attempts < connectionParameters.nRetransmissions)
     {
@@ -598,7 +595,6 @@ int llwrite(const unsigned char *appPayload, int appPayloadSize)
 
   int attempts = 0;
   g_alarmEnabled = 0;
-  g_alarmCount = 0;
 
   while (attempts < g_maxRetransmissions)
   {
@@ -748,7 +744,6 @@ int llclose()
 
     int attempts = 0;
     g_alarmEnabled = 0;
-    g_alarmCount = 0;
 
     while (attempts < g_maxRetransmissions)
     {
