@@ -60,7 +60,7 @@ color2 = "#c47ceb"   # time color
 
 # Efficiency (left axis)
 ax1.plot(bauds, effs, marker="o", linewidth=2, color=color1, label="Efficiency S = R/C")
-ax1.set_xlabel("Link Capacity C [bit/s]")
+ax1.set_xlabel("Baud Rate (bit/s)")
 ax1.set_ylabel("Efficiency S", color=color1)
 ax1.tick_params(axis="y", labelcolor=color1)
 ax1.set_ylim(0, 1.0)

@@ -4,10 +4,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 # === CONFIG ===
-INPUT_CSV = "ber_raw.csv"
-OUTPUT_CSV = "efficiency_results_ber.csv"
-OUTPUT_PNG = "efficiency_results_ber.png"
-OUTPUT_PDF = "efficiency_results_ber.pdf"
+INPUT_CSV = "payload_raw.csv"
+OUTPUT_CSV = "efficiency_results_payload.csv"
+OUTPUT_PNG = "efficiency_results_payload.png"
+OUTPUT_PDF = "efficiency_results_payload.pdf"
 
 sns.set_theme(style="white")
 plt.rcParams.update({
@@ -23,24 +23,24 @@ with open(INPUT_CSV, newline="") as f:
     reader = csv.DictReader(f)
     for row in reader:
         raw.append({
-            "ber": float(row["ber"]),
+            "payload": int(row["payload_bytes"]),
             "baud": float(row["baud_bps"]),
             "time": float(row["time_s"]),
             "file_size_bytes": float(row["file_size_bytes"]),
             "delivered": row["delivered"].strip().lower()
         })
 
-# --- Group by BER ---
+# --- Group (in case of repeats, though you have 1 per payload) ---
 grouped = {}
 for r in raw:
-    b = r["ber"]
-    grouped.setdefault(b, {"times": [], "baud": r["baud"], "file_size_bytes": r["file_size_bytes"], "delivered_flags": []})
-    grouped[b]["times"].append(r["time"])
-    grouped[b]["delivered_flags"].append(r["delivered"])
+    p = r["payload"]
+    grouped.setdefault(p, {"times": [], "baud": r["baud"], "file_size_bytes": r["file_size_bytes"], "delivered_flags": []})
+    grouped[p]["times"].append(r["time"])
+    grouped[p]["delivered_flags"].append(r["delivered"])
 
 # --- Compute averages ---
 results = []
-for b, vals in grouped.items():
+for p, vals in grouped.items():
     baud = vals["baud"]
     file_size = vals["file_size_bytes"]
     times = [t for t, d in zip(vals["times"], vals["delivered_flags"]) if d == "yes"]
@@ -48,18 +48,16 @@ for b, vals in grouped.items():
 
     if times:
         avg_t = statistics.mean(times)
-        std_t = statistics.stdev(times) if len(times) > 1 else 0.0
         payload_bits = file_size * 8
         R = payload_bits / avg_t
         S = R / baud
     else:
-        avg_t, std_t, S = None, None, 0.0
+        avg_t, S = None, 0.0
 
     results.append({
-        "ber": b,
+        "payload_bytes": p,
         "baud_bps": baud,
         "avg_time_s": avg_t if avg_t else 0.0,
-        "std_time_s": std_t if std_t else 0.0,
         "efficiency_S": S,
         "delivered": delivered
     })
@@ -73,49 +71,43 @@ print(f"✅ Results saved to '{OUTPUT_CSV}'")
 
 # --- Separate successful vs failed ---
 success = [r for r in results if r["delivered"] == "yes"]
-failed = [r for r in results if r["delivered"] == "no"]
 
-bers_s = [r["ber"] for r in success]
+p_s = [r["payload_bytes"] for r in success]
 effs_s = [r["efficiency_S"] for r in success]
 times_s = [r["avg_time_s"] for r in success]
-stds_s = [r["std_time_s"] for r in success]
-
-bers_f = [r["ber"] for r in failed]
-effs_f = [r["efficiency_S"] for r in failed]
 
 # --- Plot ---
 fig, ax1 = plt.subplots(figsize=(7.5, 4.8))
 color1 = "#00cc7a"
 color2 = "#c47ceb"
 
-# Efficiency (left)
-ax1.plot(bers_s, effs_s, marker="o", linewidth=2, color=color1, label="Efficiency S = R/C")
-ax1.scatter(bers_f, effs_f, color="red", marker="x", s=80, label="Transfer failed")
-ax1.set_xlabel("Bit Error Rate (BER)")
+# Efficiency (left axis)
+ax1.plot(p_s, effs_s, marker="o", linewidth=2, color=color1, label="Efficiency S = R/C")
+ax1.set_xlabel("Maximum Payload Size (bytes)")
 ax1.set_ylabel("Efficiency S", color=color1)
 ax1.tick_params(axis="y", labelcolor=color1)
-ax1.set_ylim(-0.05, 1.0)  # 👈 lowered min slightly to show red ✗ markers
+ax1.set_ylim(0.0, 1.0)
 
-# Secondary axis: transfer time
+# Transfer time (right axis)
 ax2 = ax1.twinx()
-ax2.plot(bers_s, times_s, marker="s", linewidth=2, color=color2, label="Transfer Time (s)")
-ax2.errorbar(bers_s, times_s, yerr=stds_s, fmt="none", ecolor="black", capsize=4)
+ax2.plot(p_s, times_s, marker="s", linewidth=2, color=color2, label="Transfer Time (s)")
 ax2.set_ylabel("Transfer Time (s)", color=color2)
 ax2.tick_params(axis="y", labelcolor=color2)
 
-# X-axis: linear + expanded limits
-ax1.set_xticks(bers_s + bers_f)
-ax1.set_xticklabels([f"{b:.5f}" for b in bers_s + bers_f], rotation=20)
-ax1.set_xlim(-0.000005, 0.00009)
+# X-axis: logarithmic scale for readability
+ax1.set_xscale("log")
+ax1.set_xticks(p_s)
+ax1.get_xaxis().set_major_formatter(plt.ScalarFormatter())
+ax1.set_xlim(min(p_s) * 0.8, max(p_s) * 1.2)
 
-# Labels above each point
-for x, y in zip(bers_s, effs_s):
-    ax1.text(x, y + 0.025, f"{y:.2f}", ha="center", va="bottom", fontsize=9, color=color1, fontweight="bold")
-for x, y in zip(bers_s, times_s):
-    ax2.text(x, y + 0.025, f"{y:.1f}s", ha="center", va="bottom", fontsize=9, color=color2, fontweight="bold")
+# Labels above points
+for x, y in zip(p_s, effs_s):
+    ax1.text(x, y + 0.02, f"{y:.2f}", ha="center", va="bottom", fontsize=9, color=color1, fontweight="bold")
+for x, y in zip(p_s, times_s):
+    ax2.text(x, y + 0.02, f"{y:.1f}s", ha="center", va="bottom", fontsize=9, color=color2, fontweight="bold")
 
 # --- Style ---
-plt.title("Efficiency and transfer time vs. Bit Error Rate (BER)")
+plt.title("Efficiency and Transfer Time vs Payload Size")
 ax1.grid(False)
 ax2.grid(False)
 

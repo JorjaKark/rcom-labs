@@ -1,7 +1,6 @@
 import csv
 import matplotlib.pyplot as plt
 import seaborn as sns
-from matplotlib.ticker import ScalarFormatter
 
 INPUT_CSV = "tprop_raw.csv"
 OUTPUT_CSV = "efficiency_results_tprop.csv"
@@ -65,7 +64,7 @@ color2 = "#c47ceb"
 
 # Efficiency curve (left axis)
 ax1.plot(tprop_ms, effs, marker="o", linewidth=2, color=color1, label="Efficiency S = R/C")
-ax1.set_xlabel("Propagation delay (ms)")
+ax1.set_xlabel("One-way propagation delay (ms)")
 ax1.set_ylabel("Efficiency S", color=color1)
 ax1.tick_params(axis="y", labelcolor=color1)
 ax1.set_ylim(0, 1.0)
@@ -76,13 +75,8 @@ ax2.plot(tprop_ms, times, marker="s", linewidth=2, color=color2, label="Transfer
 ax2.set_ylabel("Transfer Time (s)", color=color2)
 ax2.tick_params(axis="y", labelcolor=color2)
 
-# --- X-axis symlog to spread small delays near 0 ms ---
-ax1.set_xscale('symlog', linthresh=5)                 # linear within ±5 ms, log outside
-ax1.xaxis.set_major_formatter(ScalarFormatter())
-ax1.set_xticks([0, 2, 5, 10, 20, 40, 80, 160])
-ax1.set_xlim(-0.2, 170)
-
 # --- Annotate each point like the other polished plots ---
+
 # Above efficiency point: numeric S
 for x, y in zip(tprop_ms, effs):
     ax1.text(
@@ -110,7 +104,7 @@ for x, y in zip(tprop_ms, times):
     )
 
 # --- Style tweaks to match the previous figures ---
-plt.title("Efficiency and Transfer Time vs Propagation Delay")
+plt.title("Efficiency and Transfer Time vs Propagation Delay (C = 9600 bit/s)")
 ax1.grid(False)
 ax2.grid(False)
 
