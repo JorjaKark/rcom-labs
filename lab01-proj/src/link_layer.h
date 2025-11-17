@@ -21,7 +21,7 @@ typedef struct
 
 // Size of maximum acceptable payload.
 // Maximum number of bytes that application layer should send to link layer.
-#define MAX_PAYLOAD_SIZE 1000
+#define MAX_PAYLOAD_SIZE 4096
 
 // MISC
 #define FALSE 0
